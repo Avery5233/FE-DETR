@@ -1,0 +1,54 @@
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+# RT-DETR-l object detection model with P3-P5 outputs. For details see https://docs.ultralytics.com/models/rtdetr
+
+# 基于快速傅里叶卷积（FFC），通过空间 - 频率域的卷积操作融合多尺度空间特征，比 Transformer 中的自注意力机制更高效地提取全局信息（去噪）
+
+# Parameters
+nc: 80  # number of classes
+scales: # model compound scaling constants, i.e. 'model=yolov8n-cls.yaml' will call yolov8-cls.yaml with scale 'n'
+  # [depth, width, max_channels]
+  l: [1.00, 1.00, 1024]
+
+# From BiliBili 魔鬼面具
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [64, 3, 2]]  # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]]  # 1-P2/4
+  - [-1, 1, FFF, [128]]
+  - [-1, 1, Conv, [256, 3, 2]]  # 3-P3/8
+  - [-1, 1, FFF, [256]]
+  - [-1, 1, Conv, [384, 3, 2]]  # 5-P4/16
+  - [-1, 1, FFF, [384]]
+  - [-1, 1, Conv, [384, 3, 2]]  # 7-P5/32
+  - [-1, 3, FFF, [384]]
+
+head:
+  - [-1, 1, Conv, [256, 1, 1, None, 1, 1, False]]  # 9 input_proj.2
+  - [-1, 1, WindowLow_GlobalHigh, [1024]] # 10
+  - [-1, 1, Conv, [256, 1, 1]]  # 11, Y5, lateral_convs.0
+
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']] # 12
+  - [6, 1, Conv, [256, 1, 1, None, 1, 1, False]]  # 13 input_proj.1
+  - [[-2, -1], 1, Concat, [1]] # 14
+  - [-1, 3, RepC3, [256, 0.5]]  # 15, fpn_blocks.0
+  - [-1, 1, Conv, [256, 1, 1]]   # 16, Y4, lateral_convs.1
+
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']] # 17
+  - [4, 1, Conv, [256, 1, 1, None, 1, 1, False]]  # 18 input_proj.0
+  - [[-2, -1], 1, Concat, [1]]  # 19 cat backbone P4
+  - [-1, 3, RepC3, [256, 0.5]]    # X3 (20), fpn_blocks.1
+
+  - [-1, 1, Conv, [256, 3, 2]]   # 22, downsample_convs.0
+  - [[-1, 16], 1, Concat, [1]]  # 23 cat Y4
+  - [-1, 3, RepC3, [256, 0.5]]    # F4 (24), pan_blocks.0
+
+  - [-1, 1, Conv, [256, 3, 2]]   # 26, downsample_convs.1
+  - [[-1, 11], 1, Concat, [1]]  # 27 cat Y5
+  - [-1, 3, RepC3, [256, 0.5]]    # F5 (28), pan_blocks.1
+
+  - [ [ 4, 20 ], 1, E2MF, [ 256 ] ] # 30-P3/8
+  - [ [ 6, 23 ], 1, E2MF, [ 256 ] ] # 31-P4/16
+  - [ [ 8, 26 ], 1, E2MF, [ 256 ] ] # 32-P5/32
+
+  - [[27, 28, 29], 1, RTDETRDecoder, [nc, 256, 300, 4, 8, 3]]  # Detect(P3, P4, P5)
+
